@@ -63,7 +63,7 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'x-session-tag'],
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // preflight — uses same options object
+app.options('*', cors(corsOptions));
 
 // ─── Request parsing ───────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
@@ -120,10 +120,20 @@ app.use(errorHandler);
 // ─── Boot sequence ─────────────────────────────────────────
 async function boot() {
   try {
-    await pool.query('SELECT 1');
-    logger.info('✅ PostgreSQL connected');
+    // Try PostgreSQL but don't crash if it fails
+    try {
+      await pool.query('SELECT 1');
+      logger.info('✅ PostgreSQL connected');
+    } catch (dbErr) {
+      logger.warn('⚠️  PostgreSQL not connected (check PG env vars):', dbErr.message);
+    }
 
-    await connectRedis();
+    // Try Redis but don't crash if it fails
+    try {
+      await connectRedis();
+    } catch (redisErr) {
+      logger.warn('⚠️  Redis not connected:', redisErr.message);
+    }
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
