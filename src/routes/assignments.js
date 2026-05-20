@@ -1,0 +1,14 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const { authenticate, requireTeacher } = require('../middleware/auth');
+const { validate, schemas } = require('../middleware/validate');
+const ctrl = require('../controllers/index');
+router.use(authenticate);
+router.get ('/',                                ctrl.getAssignments);
+router.post('/', requireTeacher, validate(schemas.assignment), ctrl.createAssignment);
+router.get ('/:id',                             ctrl.getAssignment);
+router.post('/submit',                          ctrl.submitAssignment);
+router.get ('/:assignmentId/submissions', requireTeacher, ctrl.getSubmissions);
+router.patch('/submissions/:id/grade',    requireTeacher, ctrl.gradeSubmission);
+module.exports = router;

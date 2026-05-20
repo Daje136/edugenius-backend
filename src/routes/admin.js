@@ -1,0 +1,11 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const { authenticate, requireAdmin } = require('../middleware/auth');
+const ctrl = require('../controllers/index');
+router.use(authenticate, requireAdmin);
+router.get   ('/users',        ctrl.listUsers);
+router.put   ('/users/:id',    ctrl.updateUser);
+router.delete('/users/:id',    ctrl.deleteUser);
+router.post  ('/announcement', ctrl.sendAnnouncement);
+module.exports = router;

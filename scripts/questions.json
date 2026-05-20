@@ -1,0 +1,22 @@
+[
+  {
+    "subject": "Mathematics",
+    "exam_type": "JAMB",
+    "class_level": "SS3",
+    "year": 2020,
+    "question": "If 2x + y = 7 and x - 2y = 1, find the value of x.",
+    "options": { "A": "1", "B": "2", "C": "3", "D": "4" },
+    "answer": "C",
+    "explanation": "From equation 2: x = 1 + 2y. Substituting into equation 1 gives y = 1, x = 3."
+  },
+  {
+    "subject": "Mathematics",
+    "exam_type": "JAMB",
+    "class_level": "SS3",
+    "year": 2020,
+    "question": "Simplify: log 8 + log 2 - log 4",
+    "options": { "A": "log 2", "B": "log 4", "C": "log 6", "D": "log 16" },
+    "answer": "B",
+    "explanation": "log 8 + log 2 - log 4 = log(8×2/4) = log 4"
+  }
+]

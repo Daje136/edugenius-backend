@@ -1,0 +1,10 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const { authenticate } = require('../middleware/auth');
+const ctrl = require('../controllers/index');
+router.use(authenticate);
+router.get ('/profile', ctrl.getProfile);
+router.put ('/profile', ctrl.updateProfile);
+router.patch('/password', ctrl.changePassword);
+module.exports = router;

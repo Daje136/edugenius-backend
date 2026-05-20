@@ -1,0 +1,10 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const { authenticate, requireTeacher } = require('../middleware/auth');
+const { studentDashboard, schoolAnalytics, studentProfile } = require('../controllers/analyticsController');
+router.use(authenticate);
+router.get('/dashboard',     studentDashboard);
+router.get('/school',        requireTeacher, schoolAnalytics);
+router.get('/student/:id',   requireTeacher, studentProfile);
+module.exports = router;

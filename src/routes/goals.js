@@ -1,0 +1,11 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const { authenticate } = require('../middleware/auth');
+const { validate, schemas } = require('../middleware/validate');
+const ctrl = require('../controllers/index');
+router.use(authenticate);
+router.post('/',     validate(schemas.goal), ctrl.createGoal);
+router.get ('/my',                           ctrl.getMyGoal);
+router.put ('/:id',  validate(schemas.goal), ctrl.updateGoal);
+module.exports = router;

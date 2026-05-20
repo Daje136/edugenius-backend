@@ -1,0 +1,10 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const { authenticate, requireTeacher } = require('../middleware/auth');
+const ctrl = require('../controllers/index');
+router.use(authenticate);
+router.get ('/',     ctrl.listResources);
+router.get ('/:id',  ctrl.getResource);
+router.post('/',     requireTeacher, ctrl.createResource);
+module.exports = router;
