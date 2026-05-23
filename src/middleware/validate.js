@@ -4,6 +4,7 @@ const { AppError } = require('./errorHandler');
 
 function validate(schema, source = 'body') {
   return (req, res, next) => {
+    if (!schema) return next();
     const { error, value } = schema.validate(req[source], { abortEarly: false, stripUnknown: true });
     if (error) {
       const msg = error.details.map(d => d.message.replace(/"/g, '')).join('. ');
@@ -16,15 +17,19 @@ function validate(schema, source = 'body') {
 
 const schemas = {
 
+  login: Joi.object({
+    email:    Joi.string().email().lowercase().required(),
+    password: Joi.string().required(),
+  }),
+
   register: Joi.object({
     firstName:  Joi.string().trim().min(2).max(50).required(),
     lastName:   Joi.string().trim().min(2).max(50).required(),
     email:      Joi.string().email().lowercase().required(),
     password:   Joi.string().min(8).max(72).required(),
-    role:       Joi.string().valid('student', 'teacher', 'admin').default('student'),
-    schoolId:   Joi.string().uuid().optional(),
-    classLevel: Joi.string().max(20).optional(),
-    examTarget: Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL', 'BOTH').optional(),
+    schoolId:   Joi.string().optional().allow('', null),
+    classLevel: Joi.string().max(20).optional().allow('', null),
+    examTarget: Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL', 'BOTH').optional().allow(null),
   }),
 
   login: Joi.object({
@@ -86,12 +91,13 @@ const schemas = {
   generateQuestions: Joi.object({
     examType:   Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL').required(),
     subject:    Joi.string().trim().required(),
-    topic:      Joi.string().trim().optional().allow('', 'undefined').default(null),
+    topic:      Joi.string().trim().optional().allow('', null).default(null),
     type:       Joi.string().valid('MCQ', 'theory', 'practical', 'mixed').default('MCQ'),
     count:      Joi.number().integer().min(1).max(30).default(10),
     difficulty: Joi.string().valid('easy', 'medium', 'hard', 'adaptive').default('adaptive'),
     year:       Joi.number().integer().min(1990).max(2030).optional(),
   }),
+
 };
 
 module.exports = { validate, schemas };
