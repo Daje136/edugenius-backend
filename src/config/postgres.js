@@ -3,15 +3,21 @@ const { Pool }      = require('pg');
 const { Sequelize } = require('sequelize');
 
 // ─── RAW POOL (used in authController, userController) ─────
-const pool = new Pool({
-  host:     process.env.PG_HOST     || 'localhost',
-  port:     parseInt(process.env.PG_PORT || '5432', 10),
-  database: process.env.PG_DATABASE || 'edugenius',
-  user:     process.env.PG_USER     || 'edugenius_user',
-  password: process.env.PG_PASSWORD || 'Joy',
-  ssl:      process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
-});
-
+const pool = new Pool(
+  process.env.DATABASE_URL
+    ? { 
+        connectionString: process.env.DATABASE_URL, 
+        ssl: { rejectUnauthorized: false } 
+      }
+    : {
+        host:     process.env.PG_HOST     || 'localhost',
+        port:     parseInt(process.env.PG_PORT || '5432', 10),
+        database: process.env.PG_DATABASE || 'edugenius',
+        user:     process.env.PG_USER     || 'edugenius_user',
+        password: process.env.PG_PASSWORD,
+        ssl:      process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
+      }
+);
 pool.on('connect', () => console.log('✅ PostgreSQL pool connected'));
 pool.on('error',   (err) => console.error('❌ PostgreSQL pool error:', err.message));
 
