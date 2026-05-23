@@ -4,21 +4,21 @@
   "description": "EduGenius AI CBT Platform — Production Backend (WAEC, JAMB, UK Curriculum)",
   "main": "src/server.js",
   "scripts": {
-  "start": "node src/server.js",
-  "dev": "nodemon src/server.js",
-  "seed": "node src/seeders/seed.js",
-  "seed:uk": "node src/seeders/seedUKQuestions.js",
-  "seed:import": "node src/seeders/importAloc.js",
-  "seed:all": "node src/seeders/seed.js && node src/seeders/seedUKQuestions.js",
-  "test": "jest --coverage",
-  "lint": "eslint src/**/*.js"
-},
-
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "seed": "node src/seeders/seed.js",
+    "seed:uk": "node src/seeders/seedUKQuestions.js",
+    "seed:import": "node src/seeders/importAloc.js",
+    "seed:all": "node src/seeders/seed.js && node src/seeders/seedUKQuestions.js",
+    "test": "jest --coverage",
+    "lint": "eslint src/**/*.js"
+  },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.15.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.4",

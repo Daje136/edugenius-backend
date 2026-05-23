@@ -1,5 +1,8 @@
 'use strict';
 const OpenAI              = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const geminiModel = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
 const Anthropic           = require('@anthropic-ai/sdk');
 const rateLimit           = require('express-rate-limit');
 const AppError            = require('../utils/AppError');
@@ -15,7 +18,7 @@ const openai = new OpenAI({
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const GROQ_MODEL = process.env.OPENAI_MODEL || 'llama-3.3-70b-versatile';
+const GROQ_MODEL = process.env.OPENAI_MODEL || 'llama-3.3-70b-versatile'
 const MAX_TOKENS = parseInt(process.env.OPENAI_MAX_TOKENS) || 1500;
 
 // ── AI rate limiter ───────────────────────────────────────────────────────────
@@ -102,9 +105,21 @@ exports.chat = async (req, res) => {
     saveChatLog(req.user.id, message, reply, subject);
 
   } catch (err) {
-    logger.error('OpenAI chat error:', err.message);
-    res.write(`data: ${JSON.stringify({ error: 'AI service temporarily unavailable' })}\n\n`);
-    res.end();
+    logger.error('Groq chat error:', err.message);
+
+    // Fallback to Gemini
+    try {
+      logger.info('Falling back to Gemini...');
+      const result = await geminiModel.generateContent(message);
+      const text = result.response.text();
+      res.write(`data: ${JSON.stringify({ delta: text })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    } catch (geminiErr) {
+      logger.error('Gemini fallback error:', geminiErr.message);
+      res.write(`data: ${JSON.stringify({ error: 'AI service temporarily unavailable' })}\n\n`);
+      res.end();
+    }
   }
 };
 
