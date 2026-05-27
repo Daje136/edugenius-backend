@@ -1,42 +1,61 @@
 'use strict';
 const { createClient } = require('redis');
-const logger           = require('../utils/logger');
+const logger = require('../utils/logger');
 
 let redisClient;
 
 async function connectRedis() {
-  redisClient = createClient({
-    url:      process.env.REDIS_URL || 'redis://localhost:6379',
-    password: process.env.REDIS_PASSWORD || undefined,
-  });
+  // Skip if no URL provided
+  if (!process.env.REDIS_URL) {
+    logger.warn('⚠️  Redis skipped — REDIS_URL not set');
+    return;
+  }
 
-  redisClient.on('error',   (err) => logger.error('Redis error:', err));
-  redisClient.on('connect', ()    => logger.info('✅ Redis connected'));
+  try {
+    redisClient = createClient({
+      url: process.env.REDIS_URL,
+      socket: {
+        tls: process.env.REDIS_URL.startsWith('rediss://'), // true for Upstash
+        rejectUnauthorized: false,
+      },
+    });
 
-  await redisClient.connect();
+    redisClient.on('error', (err) => {
+      logger.warn('Redis error:', err.message);
+    });
+
+    await redisClient.connect();
+    logger.info('✅ Redis connected');
+
+  } catch (err) {
+    logger.warn('⚠️  Redis not connected:', err.message);
+  }
 }
 
 function getRedis() {
-  if (!redisClient) throw new Error('Redis not initialised');
-  return redisClient;
+  return redisClient || null;
 }
 
-// Helpers
 async function cacheSet(key, value, ttlSeconds = 300) {
   try {
-    await getRedis().setEx(key, ttlSeconds, JSON.stringify(value));
+    if (!redisClient) return;
+    await redisClient.setEx(key, ttlSeconds, JSON.stringify(value));
   } catch { /* non-fatal */ }
 }
 
 async function cacheGet(key) {
   try {
-    const raw = await getRedis().get(key);
+    if (!redisClient) return null;
+    const raw = await redisClient.get(key);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
 
 async function cacheDel(key) {
-  try { await getRedis().del(key); } catch { /* non-fatal */ }
+  try {
+    if (!redisClient) return;
+    await redisClient.del(key);
+  } catch { /* non-fatal */ }
 }
 
 module.exports = { connectRedis, getRedis, cacheSet, cacheGet, cacheDel };

@@ -62,6 +62,15 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-session-tag'],
 };
+const corsOptions = {
+  origin: [
+    'http://127.0.0.1:5500',
+    'http://localhost:5500',
+    'http://localhost:3000',
+    'https://daje136.github.io',  // ← add your GitHub Pages URL
+    process.env.FRONTEND_URL,
+  ].filter(Boolean),
+}
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
