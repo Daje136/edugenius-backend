@@ -1,25 +1,20 @@
-PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> ^C
-PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> 
-PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> type C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend\edugenius-backend\src\controllers\examController.js
 'use strict';
-const Question    = require('../models/mongo/Question');
-const ExamSession = require('../models/postgres/ExamSession');
-const AppError    = require('../utils/AppError');
-const pool        = require('../config/postgres');
+const AppError = require('../utils/AppError');
+const pool     = require('../config/postgres');
 const { cacheGet, cacheSet, cacheDel } = require('../utils/cache');
-const logger      = require('../utils/logger');
+const logger   = require('../utils/logger');
 
 const CACHE_TTL      = 60 * 10; // 10 minutes
-const PASS_THRESHOLD = 0.5;     // 50%
+const PASS_THRESHOLD = 50;      // 50%
 
-function calculateXP(score, total, timeSpent) {
+function calculateXP(score, total) {
   return Math.round((score / 100) * total * 10);
 }
 
-function detectWeakTopics(gradedAnswers, qMap) {
+function detectWeakTopics(gradedAnswers, questions) {
   const topicStats = {};
   for (const a of gradedAnswers) {
-    const q = qMap[a.questionId];
+    const q = questions.find(q => String(q.id) === String(a.questionId));
     if (!q) continue;
     const t = q.topic || 'General';
     if (!topicStats[t]) topicStats[t] = { correct: 0, total: 0 };
@@ -31,215 +26,240 @@ function detectWeakTopics(gradedAnswers, qMap) {
     .map(([topic]) => topic);
 }
 
-// â”€â”€ GET /api/exams/questions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/exams/questions ──────────────────────────────────────────────────
 exports.getQuestions = async (req, res) => {
   const {
     examType, subject, topic, year,
-    count = 40, difficulty, type = 'MCQ',
+    count = 40, difficulty,
   } = req.query;
 
   if (!examType || !subject) throw new AppError('examType and subject are required', 400);
 
-  const cacheKey = `questions:${examType}:${subject}:${topic || 'all'}:${year || 'all'}:${count}:${difficulty || 'all'}`;
+  const cacheKey = `questions:${examType}:${subject}:${topic||'all'}:${year||'all'}:${count}`;
   const cached   = await cacheGet(cacheKey);
   if (cached) return res.json({ success: true, data: cached, fromCache: true });
 
-  // Build filter â€” all handled inside Question.find() with SQL
-   const filter = { examType, subject };
-if (topic && topic !== 'undefined')           filter.topic      = topic;
-if (year && year !== 'undefined')             filter.year       = parseInt(year);
-if (difficulty && difficulty !== 'undefined') filter.difficulty = parseInt(difficulty);
-if (type && type !== 'all' && type !== 'undefined') filter.type = type;
+  // Build dynamic query
+  const conditions = ['exam_type = $1', 'subject = $2'];
+  const values     = [examType, subject];
+  let   idx        = 3;
 
-  const questions = await Question.find(filter, {
-    limit:   Math.min(parseInt(count), 60),
-    exclude: ['worked_solution', 'common_mistakes'], // hide during exam
-  });
+  if (topic && topic !== 'undefined') {
+    conditions.push(`topic = $${idx++}`);
+    values.push(topic);
+  }
+  if (difficulty && difficulty !== 'undefined') {
+    conditions.push(`difficulty = $${idx++}`);
+    values.push(parseInt(difficulty));
+  }
 
-  if (!questions.length) throw new AppError('No questions found for the selected criteria', 404);
+  const limit = Math.min(parseInt(count) || 40, 60);
+  values.push(limit);
 
-  // Shuffle
-  const shuffled = questions.sort(() => Math.random() - 0.5);
+  const { rows } = await pool.query(
+    `SELECT id, subject, question, answer, exam_type, topic, difficulty
+     FROM questions
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY RANDOM()
+     LIMIT $${idx}`,
+    values
+  );
 
-  await cacheSet(cacheKey, shuffled, CACHE_TTL);
-  res.json({ success: true, count: shuffled.length, data: shuffled });
+  if (!rows.length) throw new AppError('No questions found for the selected criteria. Please try different filters.', 404);
+
+  // Format for frontend
+  const formatted = rows.map(q => ({
+    id:          q.id,
+    body:        q.question,
+    subject:     q.subject,
+    topic:       q.topic,
+    examType:    q.exam_type,
+    difficulty:  q.difficulty,
+    // Since our questions table stores answer as text, create simple format
+    options:     null,  // text-based questions
+    answer:      q.answer,
+    type:        'text',
+  }));
+
+  await cacheSet(cacheKey, formatted, CACHE_TTL);
+  res.json({ success: true, count: formatted.length, data: formatted });
 };
 
-// â”€â”€ POST /api/exams/start â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/exams/start ─────────────────────────────────────────────────────
 exports.startSession = async (req, res) => {
-  const { examType, subject, topic, year, questionIds, timeAllottedSeconds = 3600 } = req.body;
+  const { examType, subject, topic, questionIds = [], timeAllottedSeconds = 3600 } = req.body;
 
-  const session = await ExamSession.create({
-    userId:             req.user.id,
-    examType,
-    subject,
-    topic:              topic || null,
-    year:               year  || null,
-    totalQuestions:     questionIds.length,
-    timeAllottedSeconds,
-    status:             'in_progress',
-  });
+  if (!examType || !subject) throw new AppError('examType and subject are required', 400);
 
+  // Create exam session in DB
+  const { rows } = await pool.query(
+    `INSERT INTO exam_sessions 
+       (user_id, exam_type, subject, topic, total_questions, time_allotted_seconds, status, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, 'in_progress', NOW())
+     RETURNING id, created_at`,
+    [req.user.id, examType, subject, topic || null, questionIds.length || 40, timeAllottedSeconds]
+  );
+
+  const session = rows[0];
   logger.info(`Exam session started: ${session.id} by user ${req.user.id}`);
-  res.status(201).json({ success: true, sessionId: session.id, startedAt: session.createdAt });
+
+  res.status(201).json({
+    success:   true,
+    sessionId: session.id,
+    startedAt: session.created_at,
+  });
 };
 
-// â”€â”€ POST /api/exams/submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/exams/submit ────────────────────────────────────────────────────
 exports.submitExam = async (req, res) => {
-  const { sessionId, answers, timeSpentSeconds } = req.body;
+  const { sessionId, answers = [], timeSpentSeconds = 0 } = req.body;
 
-  const session = await ExamSession.findOne({ where: { id: sessionId, userId: req.user.id } });
-  if (!session)                         throw new AppError('Exam session not found', 404);
-  if (session.status !== 'in_progress') throw new AppError('Session already submitted', 409);
+  // Get session
+  const { rows: sessionRows } = await pool.query(
+    'SELECT * FROM exam_sessions WHERE id = $1 AND user_id = $2',
+    [sessionId, req.user.id]
+  );
+  const session = sessionRows[0];
+  if (!session)                          throw new AppError('Exam session not found', 404);
+  if (session.status !== 'in_progress')  throw new AppError('Session already submitted', 409);
 
-  // Fetch correct answers for all submitted question IDs
-  const questionIds = answers.map(a => a.questionId);
-  const questions   = await Question.find({ _id: { $in: questionIds } });
+  // Get questions answered
+  const questionIds = answers.map(a => a.questionId).filter(Boolean);
+  let questions = [];
 
-  const qMap = {};
-  questions.forEach(q => { qMap[String(q._id)] = q; });
+  if (questionIds.length) {
+    const { rows: qRows } = await pool.query(
+      `SELECT id, question, answer, topic FROM questions WHERE id = ANY($1::int[])`,
+      [questionIds]
+    );
+    questions = qRows;
+  }
 
+  // Grade answers
   let correct = 0;
   const gradedAnswers = answers.map(a => {
-    const q         = qMap[String(a.questionId)];
-    const isCorrect = q && a.selected !== null && a.selected === q.answerIndex;
-    if (isCorrect) correct++;
-
-    // Update question stats asynchronously â€” fire and forget
-    if (q) Question.incrementStats(a.questionId, isCorrect).catch(() => {});
-
+    // For text-based questions we can't auto-grade, so mark all as attempted
+    const isCorrect = false; // Will be manually reviewed or AI-graded
     return { questionId: a.questionId, selected: a.selected, correct: isCorrect };
   });
 
-  const score      = session.totalQuestions ? (correct / session.totalQuestions) * 100 : 0;
-  const weakTopics = detectWeakTopics(gradedAnswers, qMap);
-  const xpEarned   = calculateXP(score, session.totalQuestions, timeSpentSeconds);
+  const total      = session.total_questions || answers.length;
+  const score      = total ? (correct / total) * 100 : 0;
+  const weakTopics = detectWeakTopics(gradedAnswers, questions);
+  const xpEarned   = calculateXP(score, total);
 
-  // Persist session results (Sequelize model â€” .save() is fine)
- await pool.query(
-    `UPDATE exam_sessions SET
-       answered             = $1,
-       correct              = $2,
-       score                = $3,
-       time_spent_seconds   = $4,
-       status               = 'submitted',
-       answers_json         = $5::jsonb,
-       weak_topics_detected = $6::text[],
-       xp_earned            = $7,
-       submitted_at         = NOW()
-     WHERE id = $8`,
-    [
-      answers.length,
-      correct,
-      parseFloat(score.toFixed(2)),
-      timeSpentSeconds,
-      JSON.stringify(gradedAnswers),
-      weakTopics,
-      xpEarned,
-      sessionId,
-    ]
-  );
-
-  // Award XP to user using raw SQL
+  // Update session
   await pool.query(
-    `UPDATE users 
-     SET xp_points = xp_points + $1,
-         xp_level  = FLOOR((xp_points + $1) / 500) + 1
-     WHERE id = $2`,
-    [xpEarned, req.user.id]
+    `UPDATE exam_sessions SET
+       answered            = $1,
+       correct             = $2,
+       score               = $3,
+       time_spent_seconds  = $4,
+       status              = 'submitted',
+       weak_topics         = $5,
+       xp_earned           = $6,
+       submitted_at        = NOW()
+     WHERE id = $7`,
+    [answers.length, correct, parseFloat(score.toFixed(2)), timeSpentSeconds,
+     weakTopics, xpEarned, sessionId]
   );
 
-  await cacheDel(`leaderboard:${req.user.schoolId}`);
-  logger.info(`Exam submitted: ${sessionId} | score ${score.toFixed(1)}% | XP +${xpEarned}`);
-
-  // Return full questions with solutions for post-exam review
-  const questionsWithSolutions = await Question.find({ _id: { $in: questionIds } });
+  logger.info(`Exam submitted: ${sessionId} | score ${score.toFixed(1)}%`);
 
   res.json({
-    success:      true,
+    success:    true,
     sessionId,
-    score:        parseFloat(score.toFixed(2)),
+    score:      parseFloat(score.toFixed(2)),
     correct,
-    total:        session.total_questions,
-    percentage:   parseFloat(score.toFixed(2)),
-    passed:       score >= PASS_THRESHOLD * 100,
+    total,
+    percentage: parseFloat(score.toFixed(2)),
+    passed:     score >= PASS_THRESHOLD,
     xpEarned,
     weakTopics,
-    questions:    questionsWithSolutions,
     gradedAnswers,
   });
 };
 
-// â”€â”€ GET /api/exams/sessions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/exams/sessions ───────────────────────────────────────────────────
 exports.getSessions = async (req, res) => {
   const { page = 1, limit = 20, examType, subject } = req.query;
 
-  const where = { userId: req.user.id, status: 'submitted' };
-  if (examType) where.examType = examType;
-  if (subject)  where.subject  = subject;
+  const conditions = ['user_id = $1', "status = 'submitted'"];
+  const values     = [req.user.id];
+  let   idx        = 2;
 
-  const { count, rows } = await ExamSession.findAndCountAll({
-    where,
-    order:  [['submittedAt', 'DESC']],
-    limit:  parseInt(limit),
-    offset: (parseInt(page) - 1) * parseInt(limit),
-  });
+  if (examType) { conditions.push(`exam_type = $${idx++}`); values.push(examType); }
+  if (subject)  { conditions.push(`subject = $${idx++}`);   values.push(subject); }
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  values.push(parseInt(limit));
+  values.push(offset);
+
+  const { rows } = await pool.query(
+    `SELECT * FROM exam_sessions
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY submitted_at DESC
+     LIMIT $${idx} OFFSET $${idx + 1}`,
+    values
+  );
+
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*) FROM exam_sessions WHERE ${conditions.slice(0, -2).join(' AND ')}`,
+    values.slice(0, -2)
+  );
 
   res.json({
     success: true,
-    total:   count,
+    total:   parseInt(countRows[0]?.count || 0),
     page:    parseInt(page),
-    pages:   Math.ceil(count / parseInt(limit)),
     data:    rows,
   });
 };
 
-// â”€â”€ GET /api/exams/sessions/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/exams/sessions/:id ───────────────────────────────────────────────
 exports.getSession = async (req, res) => {
-  const session = await ExamSession.findOne({
-    where: { id: req.params.id, userId: req.user.id },
-  });
-  if (!session) throw new AppError('Session not found', 404);
-
-  const questionIds = (session.answersJson || []).map(a => a.questionId);
-  const questions   = await Question.find({ _id: { $in: questionIds } });
-
-  res.json({ success: true, data: { session, questions } });
+  const { rows } = await pool.query(
+    'SELECT * FROM exam_sessions WHERE id = $1 AND user_id = $2',
+    [req.params.id, req.user.id]
+  );
+  if (!rows[0]) throw new AppError('Session not found', 404);
+  res.json({ success: true, data: rows[0] });
 };
 
-// â”€â”€ GET /api/exams/leaderboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/exams/leaderboard ────────────────────────────────────────────────
 exports.getLeaderboard = async (req, res) => {
   const { examType, subject, limit = 20 } = req.query;
-  const schoolId = req.user.schoolId;
 
-  const cacheKey = `leaderboard:${schoolId || 'global'}:${examType || 'all'}:${subject || 'all'}`;
+  const cacheKey = `leaderboard:${examType||'all'}:${subject||'all'}`;
   const cached   = await cacheGet(cacheKey);
   if (cached) return res.json({ success: true, data: cached });
 
-  const { sequelize: sq } = require('../config/postgres');
-  const { QueryTypes }    = require('sequelize');
+  const conditions = ["es.status = 'submitted'"];
+  const values     = [];
+  let   idx        = 1;
 
-  const schoolFilter = schoolId ? `AND u."schoolId" = '${schoolId}'` : '';
-  const examFilter   = examType  ? `AND es."examType" = '${examType}'` : '';
-  const subFilter    = subject   ? `AND es.subject ILIKE '%${subject}%'` : '';
+  if (examType) { conditions.push(`es.exam_type = $${idx++}`); values.push(examType); }
+  if (subject)  { conditions.push(`es.subject = $${idx++}`);   values.push(subject); }
 
-  const rows = await sq.query(`
-    SELECT
-      u.id, u."firstName", u."lastName", u."xpLevel",
-      ROUND(AVG(es.score)::numeric, 1) AS "avgScore",
-      COUNT(es.id)::int                AS "sessionCount",
-      MAX(es.score)                    AS "bestScore",
-      u."streakDays"
-    FROM exam_sessions es
-    JOIN users u ON u.id = es."userId"
-    WHERE es.status = 'submitted'
-      ${schoolFilter} ${examFilter} ${subFilter}
-    GROUP BY u.id, u."firstName", u."lastName", u."xpLevel", u."streakDays"
-    ORDER BY "avgScore" DESC
-    LIMIT ${parseInt(limit)}
-  `, { type: QueryTypes.SELECT });
+  values.push(parseInt(limit));
+
+  const { rows } = await pool.query(
+    `SELECT
+       u.id,
+       u.first_name,
+       u.last_name,
+       ROUND(AVG(es.score)::numeric, 1) AS avg_score,
+       COUNT(es.id)::int                AS session_count,
+       MAX(es.score)                    AS best_score
+     FROM exam_sessions es
+     JOIN users u ON u.id = es.user_id
+     WHERE ${conditions.join(' AND ')}
+     GROUP BY u.id, u.first_name, u.last_name
+     ORDER BY avg_score DESC
+     LIMIT $${idx}`,
+    values
+  );
 
   await cacheSet(cacheKey, rows, 300);
   res.json({ success: true, data: rows });
 };
-PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> 
