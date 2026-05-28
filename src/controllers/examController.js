@@ -1,3 +1,6 @@
+PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> ^C
+PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> 
+PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> type C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend\edugenius-backend\src\controllers\examController.js
 'use strict';
 const Question    = require('../models/mongo/Question');
 const ExamSession = require('../models/postgres/ExamSession');
@@ -28,7 +31,7 @@ function detectWeakTopics(gradedAnswers, qMap) {
     .map(([topic]) => topic);
 }
 
-// ── GET /api/exams/questions ─────────────────────────────────────────────────
+// â”€â”€ GET /api/exams/questions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.getQuestions = async (req, res) => {
   const {
     examType, subject, topic, year,
@@ -41,7 +44,7 @@ exports.getQuestions = async (req, res) => {
   const cached   = await cacheGet(cacheKey);
   if (cached) return res.json({ success: true, data: cached, fromCache: true });
 
-  // Build filter — all handled inside Question.find() with SQL
+  // Build filter â€” all handled inside Question.find() with SQL
    const filter = { examType, subject };
 if (topic && topic !== 'undefined')           filter.topic      = topic;
 if (year && year !== 'undefined')             filter.year       = parseInt(year);
@@ -62,7 +65,7 @@ if (type && type !== 'all' && type !== 'undefined') filter.type = type;
   res.json({ success: true, count: shuffled.length, data: shuffled });
 };
 
-// ── POST /api/exams/start ────────────────────────────────────────────────────
+// â”€â”€ POST /api/exams/start â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.startSession = async (req, res) => {
   const { examType, subject, topic, year, questionIds, timeAllottedSeconds = 3600 } = req.body;
 
@@ -81,7 +84,7 @@ exports.startSession = async (req, res) => {
   res.status(201).json({ success: true, sessionId: session.id, startedAt: session.createdAt });
 };
 
-// ── POST /api/exams/submit ───────────────────────────────────────────────────
+// â”€â”€ POST /api/exams/submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.submitExam = async (req, res) => {
   const { sessionId, answers, timeSpentSeconds } = req.body;
 
@@ -102,7 +105,7 @@ exports.submitExam = async (req, res) => {
     const isCorrect = q && a.selected !== null && a.selected === q.answerIndex;
     if (isCorrect) correct++;
 
-    // Update question stats asynchronously — fire and forget
+    // Update question stats asynchronously â€” fire and forget
     if (q) Question.incrementStats(a.questionId, isCorrect).catch(() => {});
 
     return { questionId: a.questionId, selected: a.selected, correct: isCorrect };
@@ -112,7 +115,7 @@ exports.submitExam = async (req, res) => {
   const weakTopics = detectWeakTopics(gradedAnswers, qMap);
   const xpEarned   = calculateXP(score, session.totalQuestions, timeSpentSeconds);
 
-  // Persist session results (Sequelize model — .save() is fine)
+  // Persist session results (Sequelize model â€” .save() is fine)
  await pool.query(
     `UPDATE exam_sessions SET
        answered             = $1,
@@ -167,7 +170,7 @@ exports.submitExam = async (req, res) => {
   });
 };
 
-// ── GET /api/exams/sessions ──────────────────────────────────────────────────
+// â”€â”€ GET /api/exams/sessions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.getSessions = async (req, res) => {
   const { page = 1, limit = 20, examType, subject } = req.query;
 
@@ -191,7 +194,7 @@ exports.getSessions = async (req, res) => {
   });
 };
 
-// ── GET /api/exams/sessions/:id ──────────────────────────────────────────────
+// â”€â”€ GET /api/exams/sessions/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.getSession = async (req, res) => {
   const session = await ExamSession.findOne({
     where: { id: req.params.id, userId: req.user.id },
@@ -204,7 +207,7 @@ exports.getSession = async (req, res) => {
   res.json({ success: true, data: { session, questions } });
 };
 
-// ── GET /api/exams/leaderboard ───────────────────────────────────────────────
+// â”€â”€ GET /api/exams/leaderboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.getLeaderboard = async (req, res) => {
   const { examType, subject, limit = 20 } = req.query;
   const schoolId = req.user.schoolId;
@@ -239,3 +242,4 @@ exports.getLeaderboard = async (req, res) => {
   await cacheSet(cacheKey, rows, 300);
   res.json({ success: true, data: rows });
 };
+PS C:\Users\Public\OneDrive\Desktop\Edugenus\edugenius-backend> 
