@@ -104,35 +104,41 @@ exports.register = async (req, res) => {
 };
 
 // ── Login ─────────────────────────────────────────────────────────────────────
-exports.login = async (req, res) => {
+exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
     const user = await getUserByEmail(email);
 
-    // FIX: Compare against a dummy hash when user not found to prevent
-    // timing-based user enumeration attacks.
-    const DUMMY_HASH = '$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
-    const isMatch = await bcrypt.compare(password, user ? user.password : DUMMY_HASH);
+    const DUMMY_HASH ='$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+    const hashToCheck = user?.password || DUMMY_HASH;
 
-    if (!user || !isMatch) throw new AppError('Invalid email or password', 401);
-    if (user.is_active === false) throw new AppError('Account is disabled', 403);
+    const isMatch = await bcrypt.compare(password, hashToCheck);
+
+    if (!user || !isMatch) {
+      throw new AppError('Invalid email or password', 401);
+    }
+
+    if (user.is_active === false) {
+      throw new AppError('Account is disabled', 403);
+    }
 
     const refreshToken = signRefresh(user.id);
-    await pool.query('UPDATE users SET refresh_token = $1 WHERE id = $2', [refreshToken, user.id]);
 
-    logger.info(`User logged in: ${email}`);
+    await pool.query(
+      'UPDATE users SET refresh_token = $1 WHERE id = $2',
+      [refreshToken, user.id]
+    );
 
     res.json({
-      success:      true,
-      accessToken:  signAccess(user.id),
+      success: true,
+      accessToken: signAccess(user.id),
       refreshToken,
-      user:         publicUser(user),
+      user: publicUser(user),
     });
-
   } catch (err) {
-    logger.error('Login error:', err.message);
-    throw err;
+    logger.error('Login error:', err);
+    next(err);
   }
 };
 

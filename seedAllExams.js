@@ -1,0 +1,86 @@
+require('dotenv').config();
+const {Sequelize}=require('sequelize');
+const sq=process.env.DATABASE_URL
+  ?new Sequelize(process.env.DATABASE_URL,{dialect:'postgres',dialectOptions:{ssl:{rejectUnauthorized:false}},logging:false})
+  :new Sequelize(process.env.PG_DATABASE,process.env.PG_USER,process.env.PG_PASSWORD,{host:process.env.PG_HOST||'localhost',dialect:'postgres',logging:false});
+
+const questions=[
+{examType:'JAMB',subject:'Biology',topic:'Cell Biology',year:2023,body:'Which organelle is responsible for protein synthesis?',options:['Mitochondria','Ribosome','Nucleus','Golgi apparatus'],answerIndex:1,workedSolution:'Ribosomes are the sites of protein synthesis in the cell.',difficulty:2},
+{examType:'JAMB',subject:'Biology',topic:'Cell Biology',year:2022,body:'The powerhouse of the cell is the',options:['Nucleus','Ribosome','Mitochondria','Lysosome'],answerIndex:2,workedSolution:'Mitochondria produce ATP through cellular respiration.',difficulty:1},
+{examType:'JAMB',subject:'Biology',topic:'Genetics',year:2023,body:'Which is NOT a nitrogenous base found in DNA?',options:['Adenine','Uracil','Guanine','Cytosine'],answerIndex:1,workedSolution:'Uracil is found in RNA, not DNA.',difficulty:3},
+{examType:'JAMB',subject:'Biology',topic:'Genetics',year:2022,body:'The phenotype ratio in a monohybrid cross between two heterozygous parents is',options:['1:2:1','3:1','1:1','2:1'],answerIndex:1,workedSolution:'Aa x Aa gives 3:1 phenotype ratio.',difficulty:3},
+{examType:'JAMB',subject:'Biology',topic:'Ecology',year:2021,body:'Which is a producer in a food chain?',options:['Grasshopper','Grass','Frog','Snake'],answerIndex:1,workedSolution:'Producers like grass make food through photosynthesis.',difficulty:1},
+{examType:'JAMB',subject:'Biology',topic:'Human Physiology',year:2023,body:'Which blood group is the universal donor?',options:['AB','B','A','O'],answerIndex:3,workedSolution:'Blood group O has no A or B antigens, compatible with all groups.',difficulty:2},
+{examType:'JAMB',subject:'Biology',topic:'Human Physiology',year:2022,body:'The hormone responsible for regulating blood sugar is',options:['Adrenaline','Thyroxine','Insulin','Oestrogen'],answerIndex:2,workedSolution:'Insulin is produced by the pancreas and lowers blood glucose.',difficulty:2},
+{examType:'JAMB',subject:'Biology',topic:'Reproduction',year:2020,body:'Which part of the flower develops into a fruit?',options:['Stigma','Ovary','Anther','Sepal'],answerIndex:1,workedSolution:'After fertilisation the ovary wall develops into the fruit.',difficulty:2},
+{examType:'JAMB',subject:'English Language',topic:'Vocabulary',year:2023,body:'The word "benevolent" most nearly means',options:['Hostile','Kind and generous','Strict','Indifferent'],answerIndex:1,workedSolution:'Benevolent means well-wishing or kind.',difficulty:2},
+{examType:'JAMB',subject:'English Language',topic:'Grammar',year:2022,body:'Which sentence is grammatically correct?',options:["He don't like rice","They was happy","She doesn't know him","We was there"],answerIndex:2,workedSolution:'She doesn\'t know him uses correct third-person singular present tense.',difficulty:2},
+{examType:'JAMB',subject:'English Language',topic:'Vocabulary',year:2023,body:'Choose the word closest in meaning to "ephemeral"',options:['Permanent','Long-lasting','Short-lived','Ancient'],answerIndex:2,workedSolution:'Ephemeral means lasting for a very short time.',difficulty:3},
+{examType:'JAMB',subject:'English Language',topic:'Grammar',year:2021,body:'Identify the passive voice',options:['The dog bit the man','The man was bitten by the dog','John is eating rice','She wrote a letter'],answerIndex:1,workedSolution:'Passive voice: the man receives the action.',difficulty:2},
+{examType:'JAMB',subject:'Economics',topic:'Demand and Supply',year:2023,body:'When price increases and demand falls, this illustrates',options:['Law of supply','Law of demand','Elasticity of supply','Giffen paradox'],answerIndex:1,workedSolution:'Law of demand: as price rises, quantity demanded falls.',difficulty:2},
+{examType:'JAMB',subject:'Economics',topic:'National Income',year:2023,body:'GDP stands for',options:['Gross Domestic Product','General Domestic Price','Gross Domestic Price','General Demand Product'],answerIndex:0,workedSolution:'GDP measures total value of goods and services produced within a country.',difficulty:1},
+{examType:'JAMB',subject:'Economics',topic:'Money and Banking',year:2021,body:'The central bank of Nigeria is',options:['First Bank','Zenith Bank','CBN','UBA'],answerIndex:2,workedSolution:'The Central Bank of Nigeria (CBN) is the apex bank.',difficulty:1},
+{examType:'JAMB',subject:'Economics',topic:'Inflation',year:2022,body:'Inflation is best defined as',options:['A fall in national income','A persistent rise in the general price level','A decrease in money supply','A rise in unemployment'],answerIndex:1,workedSolution:'Inflation is a sustained increase in the general price level over time.',difficulty:2},
+{examType:'WAEC',subject:'Biology',topic:'Cell Biology',year:2023,body:'Which is found in plant cells but NOT animal cells?',options:['Nucleus','Cell wall','Mitochondria','Ribosome'],answerIndex:1,workedSolution:'Plant cells have a cellulose cell wall; animal cells do not.',difficulty:2},
+{examType:'WAEC',subject:'Biology',topic:'Nutrition',year:2022,body:'Enzymes are biological catalysts made of',options:['Carbohydrates','Lipids','Proteins','Nucleic acids'],answerIndex:2,workedSolution:'Enzymes are proteins that catalyse biochemical reactions.',difficulty:2},
+{examType:'WAEC',subject:'Biology',topic:'Reproduction',year:2021,body:'In humans, fertilisation normally occurs in the',options:['Uterus','Ovary','Fallopian tube','Cervix'],answerIndex:2,workedSolution:'The egg is fertilised in the fallopian tube.',difficulty:2},
+{examType:'WAEC',subject:'Physics',topic:'Waves',year:2023,body:'The frequency of a wave with period 0.02s is',options:['200 Hz','50 Hz','0.02 Hz','20 Hz'],answerIndex:1,workedSolution:'f = 1/T = 1/0.02 = 50 Hz',difficulty:2},
+{examType:'WAEC',subject:'Physics',topic:'Electricity',year:2022,body:"Ohm's law states that current is",options:['Inversely proportional to voltage','Directly proportional to resistance','Directly proportional to voltage at constant resistance','Independent of voltage'],answerIndex:2,workedSolution:'V=IR so at constant R, current is proportional to voltage.',difficulty:2},
+{examType:'WAEC',subject:'Chemistry',topic:'Periodic Table',year:2023,body:'Elements in the same group have the same',options:['Atomic mass','Number of neutrons','Number of valence electrons','Atomic radius'],answerIndex:2,workedSolution:'Group number corresponds to valence electrons.',difficulty:2},
+{examType:'WAEC',subject:'Chemistry',topic:'Acids and Bases',year:2022,body:'The pH of a neutral solution at 25°C is',options:['0','7','14','1'],answerIndex:1,workedSolution:'Neutral solution has equal H+ and OH- giving pH 7.',difficulty:1},
+{examType:'WAEC',subject:'Mathematics',topic:'Algebra',year:2023,body:'Solve for x: 2x + 5 = 13',options:['x = 3','x = 4','x = 9','x = 6'],answerIndex:1,workedSolution:'2x = 8, x = 4.',difficulty:1},
+{examType:'WAEC',subject:'Mathematics',topic:'Statistics',year:2022,body:'The mean of 4, 7, 9, 12, 8 is',options:['7','8','9','10'],answerIndex:1,workedSolution:'(4+7+9+12+8)/5 = 40/5 = 8',difficulty:1},
+{examType:'WAEC',subject:'English Language',topic:'Grammar',year:2023,body:'Choose the correct spelling',options:['Accomodate','Accommodate','Acomodate','Acommodate'],answerIndex:1,workedSolution:'Accommodate has double c and double m.',difficulty:2},
+{examType:'NECO',subject:'Biology',topic:'Cell Biology',year:2023,body:'The fluid-mosaic model describes the structure of',options:['Cell wall','Cell membrane','Nucleus','Cytoplasm'],answerIndex:1,workedSolution:'The fluid-mosaic model describes the phospholipid bilayer with embedded proteins.',difficulty:3},
+{examType:'NECO',subject:'Biology',topic:'Ecology',year:2022,body:'An organism that feeds on dead organic matter is called a',options:['Producer','Consumer','Decomposer','Parasite'],answerIndex:2,workedSolution:'Decomposers break down dead organic matter recycling nutrients.',difficulty:2},
+{examType:'NECO',subject:'Chemistry',topic:'Bonding',year:2023,body:'A covalent bond is formed by',options:['Transfer of electrons','Sharing of electrons','Attraction of ions','Metallic bonding'],answerIndex:1,workedSolution:'Covalent bonds form when atoms share electron pairs.',difficulty:2},
+{examType:'NECO',subject:'Chemistry',topic:'Organic Chemistry',year:2022,body:'The general formula of alkanes is',options:['CnH2n','CnH2n+2','CnH2n-2','CnHn'],answerIndex:1,workedSolution:'Alkanes are saturated hydrocarbons CnH2n+2.',difficulty:2},
+{examType:'NECO',subject:'Physics',topic:'Mechanics',year:2023,body:'The SI unit of force is',options:['Joule','Watt','Newton','Pascal'],answerIndex:2,workedSolution:'The Newton (N) is the SI unit of force.',difficulty:1},
+{examType:'NECO',subject:'Physics',topic:'Heat',year:2022,body:'Which heat transfer process does not require a medium?',options:['Conduction','Convection','Radiation','All require a medium'],answerIndex:2,workedSolution:'Radiation travels as electromagnetic waves through a vacuum.',difficulty:2},
+{examType:'NECO',subject:'Mathematics',topic:'Number Theory',year:2023,body:'What is the LCM of 12 and 18?',options:['6','36','72','24'],answerIndex:1,workedSolution:'12=2²×3, 18=2×3². LCM=2²×3²=36.',difficulty:2},
+{examType:'NECO',subject:'Mathematics',topic:'Geometry',year:2022,body:'The sum of interior angles of a triangle is',options:['90°','180°','270°','360°'],answerIndex:1,workedSolution:'Interior angles of any triangle sum to 180°.',difficulty:1},
+{examType:'NECO',subject:'English Language',topic:'Vocabulary',year:2023,body:'A word opposite in meaning to another is called a',options:['Synonym','Homonym','Antonym','Acronym'],answerIndex:2,workedSolution:'An antonym is a word with the opposite meaning.',difficulty:1},
+{examType:'NECO',subject:'Economics',topic:'Production',year:2022,body:'The four factors of production are',options:['Land, Labour, Capital, Enterprise','Money, Labour, Tools, Land','Capital, Money, Labour, Management','Land, Labour, Money, Skills'],answerIndex:0,workedSolution:'The four factors of production are Land, Labour, Capital, and Enterprise.',difficulty:2},
+{examType:'IELTS',subject:'Reading',topic:'Academic Reading',year:2023,body:'In IELTS Academic Reading, how many sections are there?',options:['2','3','4','5'],answerIndex:1,workedSolution:'IELTS Academic Reading has 3 sections with 40 questions total.',difficulty:1},
+{examType:'IELTS',subject:'Reading',topic:'Vocabulary',year:2023,body:'The word "meticulous" most nearly means',options:['Careless','Showing great attention to detail','Quick','Aggressive'],answerIndex:1,workedSolution:'Meticulous means very careful and precise about details.',difficulty:2},
+{examType:'IELTS',subject:'Writing',topic:'Task 1',year:2023,body:'IELTS Writing Task 1 Academic requires at least how many words?',options:['100 words','150 words','200 words','250 words'],answerIndex:1,workedSolution:'Task 1 requires a minimum of 150 words.',difficulty:1},
+{examType:'IELTS',subject:'Writing',topic:'Task 2',year:2023,body:'IELTS Writing Task 2 requires at least how many words?',options:['200 words','250 words','300 words','350 words'],answerIndex:1,workedSolution:'Task 2 requires at least 250 words.',difficulty:1},
+{examType:'IELTS',subject:'Listening',topic:'Test Format',year:2023,body:'The IELTS Listening test has how many sections?',options:['3','4','5','6'],answerIndex:1,workedSolution:'The Listening test has 4 sections of 10 questions each.',difficulty:1},
+{examType:'IELTS',subject:'Reading',topic:'Vocabulary',year:2022,body:'Choose the correct meaning of "ambiguous"',options:['Clear and obvious','Open to more than one interpretation','Completely wrong','Extremely simple'],answerIndex:1,workedSolution:'Ambiguous means open to multiple interpretations.',difficulty:2},
+{examType:'IELTS',subject:'Reading',topic:'Vocabulary',year:2022,body:'The word "ubiquitous" means',options:['Rare and unusual','Present everywhere at the same time','Ancient and old','Extremely large'],answerIndex:1,workedSolution:'Ubiquitous means appearing or found everywhere.',difficulty:3},
+{examType:'IELTS',subject:'Writing',topic:'Grammar',year:2023,body:'Which sentence uses the correct article?',options:['She is honest woman','She is a honest woman','She is an honest woman','She is the honest woman'],answerIndex:2,workedSolution:'"Honest" starts with a vowel sound so "an" is used.',difficulty:2},
+{examType:'IELTS',subject:'Reading',topic:'Academic Vocabulary',year:2022,body:'"The findings were inconclusive." Inconclusive means',options:['Very clear','Not leading to a definite answer','Completely wrong','Highly significant'],answerIndex:1,workedSolution:'Inconclusive means not leading to a firm conclusion.',difficulty:2},
+{examType:'IELTS',subject:'Reading',topic:'Academic Vocabulary',year:2023,body:'Which word means to officially end or cancel something?',options:['Ratify','Abolish','Amend','Establish'],answerIndex:1,workedSolution:'To abolish means to formally put an end to a practice or institution.',difficulty:3},
+{examType:'GCSE',subject:'Biology',topic:'Cell Biology',year:2023,body:'Which of the following is a eukaryotic cell?',options:['Bacterium','Virus','Plant cell','Archaeon'],answerIndex:2,workedSolution:'Plant cells are eukaryotic with a membrane-bound nucleus.',difficulty:2},
+{examType:'GCSE',subject:'Biology',topic:'Genetics',year:2022,body:'DNA is found primarily in which part of the cell?',options:['Ribosome','Cell membrane','Nucleus','Cytoplasm'],answerIndex:2,workedSolution:'DNA is primarily stored in the nucleus.',difficulty:1},
+{examType:'GCSE',subject:'Chemistry',topic:'Atomic Structure',year:2023,body:'The atomic number represents the number of',options:['Neutrons','Protons','Electrons and neutrons','Nucleons'],answerIndex:1,workedSolution:'Atomic number = number of protons in the nucleus.',difficulty:1},
+{examType:'GCSE',subject:'Chemistry',topic:'Reactions',year:2022,body:'In an exothermic reaction, energy is',options:['Absorbed from surroundings','Released to surroundings','Neither absorbed nor released','Only stored'],answerIndex:1,workedSolution:'Exothermic reactions release heat to surroundings.',difficulty:2},
+{examType:'GCSE',subject:'Physics',topic:'Forces',year:2023,body:"Newton's second law states that Force equals",options:['mass × velocity','mass × acceleration','weight × speed','energy / time'],answerIndex:1,workedSolution:'F = ma (Newton\'s Second Law).',difficulty:1},
+{examType:'GCSE',subject:'Physics',topic:'Energy',year:2022,body:'The SI unit of energy is the',options:['Watt','Newton','Joule','Pascal'],answerIndex:2,workedSolution:'The Joule (J) is the SI unit of energy.',difficulty:1},
+{examType:'GCSE',subject:'Mathematics',topic:'Algebra',year:2023,body:'Expand: (x + 3)(x + 2)',options:['x² + 5x + 5','x² + 5x + 6','x² + 6x + 6','x² + 3x + 6'],answerIndex:1,workedSolution:'(x+3)(x+2) = x²+2x+3x+6 = x²+5x+6',difficulty:2},
+{examType:'GCSE',subject:'Mathematics',topic:'Statistics',year:2022,body:'The median of 3, 7, 2, 9, 5 is',options:['5','7','3','6'],answerIndex:0,workedSolution:'Ordered: 2,3,5,7,9. Middle value = 5.',difficulty:2},
+{examType:'GCSE',subject:'English Literature',topic:'Poetry',year:2023,body:'A 14-line poem in iambic pentameter is called a',options:['Haiku','Sonnet','Ballad','Ode'],answerIndex:1,workedSolution:'A sonnet is 14 lines typically in iambic pentameter.',difficulty:2},
+{examType:'GCSE',subject:'English Language',topic:'Grammar',year:2022,body:'Identify the subordinate clause: "Although it was raining, we went outside."',options:['we went outside','it was raining','Although it was raining','raining we went'],answerIndex:2,workedSolution:'"Although it was raining" cannot stand alone — it is the subordinate clause.',difficulty:2},
+];
+
+async function run(){
+  try{
+    let inserted=0;
+    for(const q of questions){
+      try{
+        await sq.query(
+          `INSERT INTO questions (exam_type,subject,topic,year,type,body,options,answer_index,worked_solution,difficulty,curriculum,tags,is_approved,created_at,updated_at)
+           VALUES ($1,$2,$3,$4,'MCQ',$5,$6,$7,$8,$9,'NG','{}',true,NOW(),NOW())
+           ON CONFLICT DO NOTHING`,
+          {bind:[q.examType,q.subject,q.topic||'General',q.year||null,q.body,q.options,q.answerIndex,q.workedSolution||null,q.difficulty||2]}
+        );
+        inserted++;
+      }catch(e){console.error('Row error:',q.body.substring(0,40),e.message);}
+    }
+    console.log('Inserted:', inserted, 'of', questions.length);
+    const [rows]=await sq.query("SELECT exam_type, subject, COUNT(*) as count FROM questions GROUP BY exam_type, subject ORDER BY exam_type, subject");
+    rows.forEach(r=>console.log(' ',r.exam_type,'|',r.subject,'->',r.count));
+    process.exit(0);
+  }catch(e){console.error(e.message);process.exit(1);}
+}
+run();

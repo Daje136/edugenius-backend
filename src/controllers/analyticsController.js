@@ -5,6 +5,10 @@ const ExamSession     = require('../models/postgres/ExamSession');
 const { AppError }    = require('../middleware/errorHandler');
 const { cacheSet, cacheGet } = require('../config/redis');
 
+// Helper: wraps a promise with a named error for easier debugging
+const label = (name, promise) =>
+  promise.catch(e => { throw new Error(`[${name}] ${e.message}`); });
+
 // ─── GET /api/analytics/dashboard ────────────────────────────
 // Student personal dashboard stats
 exports.studentDashboard = async (req, res) => {
@@ -16,7 +20,7 @@ exports.studentDashboard = async (req, res) => {
   const [overview, bySubject, trend, recentSessions] = await Promise.all([
 
     // Overall stats
-    sequelize.query(`
+    label('overview', sequelize.query(`
       SELECT
         COUNT(*)::int                             AS "totalSessions",
         ROUND(AVG(score)::numeric, 1)             AS "avgScore",
@@ -26,10 +30,10 @@ exports.studentDashboard = async (req, res) => {
         SUM(total_questions)::int                 AS "totalAttempted"
       FROM exam_sessions
       WHERE user_id = :userId AND status = 'submitted'
-    `, { replacements: { userId }, type: QueryTypes.SELECT }),
+    `, { replacements: { userId }, type: QueryTypes.SELECT })),
 
     // Per-subject breakdown
-    sequelize.query(`
+    label('bySubject', sequelize.query(`
       SELECT
         subject,
         COUNT(*)::int                             AS "sessions",
@@ -41,10 +45,10 @@ exports.studentDashboard = async (req, res) => {
       WHERE user_id = :userId AND status = 'submitted'
       GROUP BY subject
       ORDER BY "avgScore" DESC
-    `, { replacements: { userId }, type: QueryTypes.SELECT }),
+    `, { replacements: { userId }, type: QueryTypes.SELECT })),
 
     // Score trend (last 12 weeks)
-    sequelize.query(`
+    label('trend', sequelize.query(`
       SELECT
         TO_CHAR(DATE_TRUNC('week', submitted_at), 'YYYY-MM-DD') AS week,
         ROUND(AVG(score)::numeric, 1)                           AS "avgScore",
@@ -55,14 +59,14 @@ exports.studentDashboard = async (req, res) => {
         AND submitted_at >= NOW() - INTERVAL '12 weeks'
       GROUP BY DATE_TRUNC('week', submitted_at)
       ORDER BY week ASC
-    `, { replacements: { userId }, type: QueryTypes.SELECT }),
+    `, { replacements: { userId }, type: QueryTypes.SELECT })),
 
     // Recent 5 sessions
-    ExamSession.findAll({
+    label('recentSessions', ExamSession.findAll({
       where: { user_id: userId, status: 'submitted' },
       order: [['submitted_at', 'DESC']],
       limit: 5,
-    }),
+    })),
   ]);
 
   const data = {
@@ -90,12 +94,19 @@ exports.schoolAnalytics = async (req, res) => {
   const cached   = await cacheGet(cacheKey);
   if (cached) return res.json({ success: true, data: cached });
 
-  const examFilter    = exam_type ? `AND es.exam_type = '${exam_type}'` : '';
-  const subjectFilter = subject   ? `AND es.subject ILIKE '%${subject}%'` : '';
+  // ✅ Safe: conditionally include filter clauses, values via replacements
+  const examFilter    = exam_type ? `AND es.exam_type = :examType`       : '';
+  const subjectFilter = subject   ? `AND es.subject ILIKE :subjectLike`  : '';
+
+  const replacements = {
+    sId,
+    ...(exam_type && { examType: exam_type }),
+    ...(subject   && { subjectLike: `%${subject}%` }),
+  };
 
   const [overview, topStudents, subjectBreakdown, weeklyActivity] = await Promise.all([
 
-    sequelize.query(`
+    label('school:overview', sequelize.query(`
       SELECT
         COUNT(DISTINCT es.user_id)::int           AS "activeStudents",
         COUNT(es.id)::int                         AS "totalSessions",
@@ -104,9 +115,9 @@ exports.schoolAnalytics = async (req, res) => {
       FROM exam_sessions es
       JOIN users u ON u.id = es.user_id
       WHERE u.school_id = :sId AND es.status = 'submitted' ${examFilter} ${subjectFilter}
-    `, { replacements: { sId }, type: QueryTypes.SELECT }),
+    `, { replacements, type: QueryTypes.SELECT })),
 
-    sequelize.query(`
+    label('school:topStudents', sequelize.query(`
       SELECT
         u.id, u.first_name, u.last_name, u.xp_level,
         ROUND(AVG(es.score)::numeric, 1) AS "avgScore",
@@ -118,9 +129,9 @@ exports.schoolAnalytics = async (req, res) => {
       GROUP BY u.id, u.first_name, u.last_name, u.xp_level, u.streak_days
       ORDER BY "avgScore" DESC
       LIMIT 10
-    `, { replacements: { sId }, type: QueryTypes.SELECT }),
+    `, { replacements, type: QueryTypes.SELECT })),
 
-    sequelize.query(`
+    label('school:subjectBreakdown', sequelize.query(`
       SELECT
         es.subject,
         ROUND(AVG(es.score)::numeric, 1)          AS "avgScore",
@@ -132,9 +143,9 @@ exports.schoolAnalytics = async (req, res) => {
       WHERE u.school_id = :sId AND es.status = 'submitted' ${examFilter}
       GROUP BY es.subject
       ORDER BY "avgScore" DESC
-    `, { replacements: { sId }, type: QueryTypes.SELECT }),
+    `, { replacements, type: QueryTypes.SELECT })),
 
-    sequelize.query(`
+    label('school:weeklyActivity', sequelize.query(`
       SELECT
         TO_CHAR(DATE_TRUNC('week', es.submitted_at), 'YYYY-MM-DD') AS week,
         COUNT(es.id)::int AS sessions,
@@ -145,7 +156,7 @@ exports.schoolAnalytics = async (req, res) => {
         AND es.submitted_at >= NOW() - INTERVAL '8 weeks'
       GROUP BY DATE_TRUNC('week', es.submitted_at)
       ORDER BY week ASC
-    `, { replacements: { sId }, type: QueryTypes.SELECT }),
+    `, { replacements, type: QueryTypes.SELECT })),
   ]);
 
   const data = { overview: overview[0], topStudents, subjectBreakdown, weeklyActivity };
@@ -159,27 +170,30 @@ exports.studentProfile = async (req, res) => {
   const { id } = req.params;
 
   const [sessions, bySubject, weakTopics] = await Promise.all([
-    ExamSession.findAll({
+
+    label('profile:sessions', ExamSession.findAll({
       where: { user_id: id, status: 'submitted' },
       order: [['submitted_at', 'DESC']],
       limit: 50,
-    }),
-    sequelize.query(`
+    })),
+
+    label('profile:bySubject', sequelize.query(`
       SELECT subject,
         ROUND(AVG(score)::numeric,1) AS "avgScore",
         COUNT(*)::int AS sessions
       FROM exam_sessions
       WHERE user_id = :id AND status = 'submitted'
       GROUP BY subject ORDER BY "avgScore" ASC
-    `, { replacements: { id }, type: QueryTypes.SELECT }),
-    sequelize.query(`
+    `, { replacements: { id }, type: QueryTypes.SELECT })),
+
+    label('profile:weakTopics', sequelize.query(`
       SELECT UNNEST(weak_topics_detected) AS topic, COUNT(*)::int AS occurrences
       FROM exam_sessions
       WHERE user_id = :id AND status = 'submitted'
       GROUP BY topic
       ORDER BY occurrences DESC
       LIMIT 10
-    `, { replacements: { id }, type: QueryTypes.SELECT }),
+    `, { replacements: { id }, type: QueryTypes.SELECT })),
   ]);
 
   res.json({ success: true, data: { sessions, bySubject, weakTopics } });

@@ -1,173 +1,137 @@
-'use strict';
-const Question       = require('../models/mongo/Question');
-const { AppError }   = require('../middleware/errorHandler');
-const { cacheSet, cacheGet, cacheDel } = require('../config/redis');
-const { parse }      = require('csv-parse/sync');
-const logger         = require('../utils/logger');
+﻿'use strict';
+const { Op } = require('sequelize');
+const { Question } = require('../models/postgres');
+const { AppError } = require('../middleware/errorHandler');
+const logger = require('../utils/logger');
 
-// ─── GET /api/questions ──────────────────────────────────────
-exports.list = async (req, res) => {
-  const {
-    examType, subject, topic, year, type, difficulty,
-    curriculum, approved, page = 1, limit = 20, search,
-  } = req.query;
-
-  const filter = {};
-  if (examType)    filter.examType    = examType;
-  if (subject)     filter.subject     = new RegExp(subject, 'i');
-  if (topic)       filter.topic       = new RegExp(topic, 'i');
-  if (year)        filter.year        = parseInt(year);
-  if (type)        filter.type        = type;
-  if (difficulty)  filter.difficulty  = parseInt(difficulty);
-  if (curriculum)  filter.curriculum  = curriculum;
-  if (approved !== undefined) filter.approved = approved === 'true';
-  if (search)      filter.$text       = { $search: search };
-
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-  const [questions, total] = await Promise.all([
-    Question.find(filter)
-      .sort({ year: -1, createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean(),
-    Question.countDocuments(filter),
-  ]);
-
-  res.json({
-    success: true,
-    total,
-    page:  parseInt(page),
-    pages: Math.ceil(total / parseInt(limit)),
-    data:  questions,
-  });
+exports.list = async (req, res, next) => {
+  try {
+    const { examType, subject, topic, year, type, difficulty, curriculum, approved, page=1, limit=20, search } = req.query;
+    const where = {};
+    if (examType)   where.examType   = examType;
+    if (subject)    where.subject    = { [Op.iLike]: '%'+subject+'%' };
+    if (topic)      where.topic      = { [Op.iLike]: '%'+topic+'%' };
+    if (type)       where.type       = type;
+    if (difficulty) where.difficulty = parseInt(difficulty);
+    if (curriculum) where.curriculum = curriculum;
+    if (year)       where.year       = parseInt(year);
+    if (approved !== undefined) where.isApproved = approved === 'true';
+    if (search)     where.body       = { [Op.iLike]: '%'+search+'%' };
+    const pg  = Math.max(parseInt(page), 1);
+    const lim = Math.min(parseInt(limit), 100);
+    const { count, rows } = await Question.findAndCountAll({ where, limit: lim, offset: (pg-1)*lim, order: [['createdAt','DESC']] });
+    res.json({ success:true, total:count, page:pg, pages:Math.ceil(count/lim), data:rows });
+  } catch(err) { next(err); }
 };
 
-// ─── GET /api/questions/:id ──────────────────────────────────
-exports.getOne = async (req, res) => {
-  const q = await Question.findById(req.params.id);
-  if (!q) throw new AppError('Question not found', 404);
-  res.json({ success: true, data: q });
+exports.getSubjects = async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.examType)   where.examType   = req.query.examType;
+    if (req.query.curriculum) where.curriculum = req.query.curriculum;
+    const rows = await Question.findAll({ where, attributes: [[Question.sequelize.fn('DISTINCT', Question.sequelize.col('subject')), 'subject']], raw:true });
+    res.json({ success:true, data:rows.map(r=>r.subject).sort() });
+  } catch(err) { next(err); }
 };
 
-// ─── POST /api/questions ─────────────────────────────────────
-exports.create = async (req, res) => {
-  const data = { ...req.body, uploadedBy: req.user.id };
-
-  // Auto-approve if uploaded by admin
-  if (req.user.role === 'admin') data.approved = true;
-
-  const q = await Question.create(data);
-  await cacheDel(`questions:${q.examType}:${q.subject}`);
-
-  logger.info(`Question created: ${q._id} by ${req.user.email}`);
-  res.status(201).json({ success: true, data: q });
+exports.getTopics = async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.examType) where.examType = req.query.examType;
+    if (req.query.subject)  where.subject  = req.query.subject;
+    const rows = await Question.findAll({ where, attributes: [[Question.sequelize.fn('DISTINCT', Question.sequelize.col('topic')), 'topic']], raw:true });
+    res.json({ success:true, data:rows.map(r=>r.topic).filter(Boolean).sort() });
+  } catch(err) { next(err); }
 };
 
-// ─── PUT /api/questions/:id ──────────────────────────────────
-exports.update = async (req, res) => {
-  const q = await Question.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-  if (!q) throw new AppError('Question not found', 404);
-  res.json({ success: true, data: q });
+exports.getYears = async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.examType) where.examType = req.query.examType;
+    if (req.query.subject)  where.subject  = req.query.subject;
+    const rows = await Question.findAll({ where, attributes: [[Question.sequelize.fn('DISTINCT', Question.sequelize.col('year')), 'year']], raw:true });
+    res.json({ success:true, data:rows.map(r=>r.year).filter(Boolean).sort((a,b)=>b-a) });
+  } catch(err) { next(err); }
 };
 
-// ─── DELETE /api/questions/:id ───────────────────────────────
-exports.remove = async (req, res) => {
-  await Question.findByIdAndDelete(req.params.id);
-  res.json({ success: true, message: 'Question deleted' });
+exports.getRandomQuestions = async (req, res, next) => {
+  try {
+    const { examType, subject, topic, difficulty, curriculum, count=10 } = req.query;
+    const where = { isApproved:true };
+    if (examType)   where.examType   = examType;
+    if (subject)    where.subject    = subject;
+    if (topic)      where.topic      = { [Op.iLike]: '%'+topic+'%' };
+    if (difficulty) where.difficulty = parseInt(difficulty);
+    if (curriculum) where.curriculum = curriculum;
+    const n = Math.min(parseInt(count), 100);
+    const pool = await Question.findAll({ where, limit: n*3 });
+    const data = pool.sort(()=>Math.random()-0.5).slice(0,n);
+    res.json({ success:true, count:data.length, data });
+  } catch(err) { next(err); }
 };
 
-// ─── PATCH /api/questions/:id/approve ───────────────────────
-exports.approve = async (req, res) => {
-  const q = await Question.findByIdAndUpdate(req.params.id, { approved: true }, { new: true });
-  if (!q) throw new AppError('Question not found', 404);
-  res.json({ success: true, data: q });
+exports.getOne = async (req, res, next) => {
+  try {
+    const q = await Question.findByPk(req.params.id);
+    if (!q) return next(new AppError('Question not found', 404));
+    res.json({ success:true, data:q });
+  } catch(err) { next(err); }
 };
 
-// ─── POST /api/questions/bulk-upload ────────────────────────
-// Accepts JSON array or CSV file
-exports.bulkUpload = async (req, res) => {
-  let questions = [];
-
-  // JSON body upload
-  if (req.body.questions && Array.isArray(req.body.questions)) {
-    questions = req.body.questions;
-  }
-  // CSV file upload
-  else if (req.file) {
-    const csvText = req.file.buffer.toString('utf8');
-    const rows    = parse(csvText, { columns: true, skip_empty_lines: true, trim: true });
-
-    questions = rows.map(r => ({
-      examType:        r.exam_type   || r.examType,
-      subject:         r.subject,
-      topic:           r.topic,
-      year:            r.year ? parseInt(r.year) : undefined,
-      type:            r.type || 'MCQ',
-      body:            r.body || r.question,
-      options:         r.options ? r.options.split('|').map(t => ({ text: t.trim(), isCorrect: false })) : [],
-      answerIndex:     r.answer_index !== undefined ? parseInt(r.answer_index) : undefined,
-      workedSolution:  r.worked_solution || r.solution,
-      difficulty:      r.difficulty ? parseInt(r.difficulty) : 3,
-      curriculum:      r.curriculum || 'NG',
-      tags:            r.tags ? r.tags.split(',').map(t => t.trim()) : [],
-    }));
-  } else {
-    throw new AppError('Provide a JSON array in body.questions or upload a CSV file', 400);
-  }
-
-  if (!questions.length) throw new AppError('No questions provided', 400);
-
-  const enriched = questions.map(q => ({
-    ...q,
-    uploadedBy: req.user.id,
-    approved:   req.user.role === 'admin',
-  }));
-
-  const inserted = await Question.insertMany(enriched, { ordered: false });
-
-  logger.info(`Bulk uploaded ${inserted.length} questions by ${req.user.email}`);
-  res.status(201).json({
-    success:  true,
-    inserted: inserted.length,
-    skipped:  questions.length - inserted.length,
-    message:  `${inserted.length} questions added${req.user.role !== 'admin' ? ' (pending admin approval)' : ''}`,
-  });
+exports.create = async (req, res, next) => {
+  try {
+    const { examType, subject, topic, year, type, body, options, answerIndex, workedSolution, difficulty, curriculum, tags } = req.body;
+    const q = await Question.create({ examType, subject, topic, year, type, body, options, answerIndex, workedSolution, difficulty, curriculum, tags, createdBy:req.user.id, isApproved:req.user.role==='admin' });
+    logger.info('Question created: '+q.id);
+    res.status(201).json({ success:true, data:q });
+  } catch(err) { next(err); }
 };
 
-// ─── GET /api/questions/subjects ─────────────────────────────
-exports.getSubjects = async (req, res) => {
-  const cacheKey = `subjects:${req.query.examType || 'all'}:${req.query.curriculum || 'all'}`;
-  const cached   = await cacheGet(cacheKey);
-  if (cached) return res.json({ success: true, data: cached });
-
-  const filter = { approved: true };
-  if (req.query.examType)   filter.examType   = req.query.examType;
-  if (req.query.curriculum) filter.curriculum = req.query.curriculum;
-
-  const subjects = await Question.distinct('subject', filter);
-  await cacheSet(cacheKey, subjects, 3600);
-  res.json({ success: true, data: subjects.sort() });
+exports.update = async (req, res, next) => {
+  try {
+    const q = await Question.findByPk(req.params.id);
+    if (!q) return next(new AppError('Question not found', 404));
+    if (req.user.role !== 'admin' && q.createdBy !== req.user.id) return next(new AppError('Forbidden', 403));
+    const { examType, subject, topic, year, type, body, options, answerIndex, workedSolution, difficulty, curriculum, tags } = req.body;
+    await q.update({ examType, subject, topic, year, type, body, options, answerIndex, workedSolution, difficulty, curriculum, tags });
+    res.json({ success:true, data:q });
+  } catch(err) { next(err); }
 };
 
-// ─── GET /api/questions/topics ───────────────────────────────
-exports.getTopics = async (req, res) => {
-  const { examType, subject } = req.query;
-  if (!subject) throw new AppError('subject is required', 400);
-
-  const filter = { approved: true, subject: new RegExp(subject, 'i') };
-  if (examType) filter.examType = examType;
-
-  const topics = await Question.distinct('topic', filter);
-  res.json({ success: true, data: topics.sort() });
+exports.remove = async (req, res, next) => {
+  try {
+    const q = await Question.findByPk(req.params.id);
+    if (!q) return next(new AppError('Question not found', 404));
+    await q.destroy();
+    res.json({ success:true, message:'Question deleted' });
+  } catch(err) { next(err); }
 };
 
-// ─── GET /api/questions/years ────────────────────────────────
-exports.getYears = async (req, res) => {
-  const { examType, subject } = req.query;
-  const filter = { approved: true };
-  if (examType) filter.examType = examType;
-  if (subject)  filter.subject  = new RegExp(subject, 'i');
+exports.approve = async (req, res, next) => {
+  try {
+    const q = await Question.findByPk(req.params.id);
+    if (!q) return next(new AppError('Question not found', 404));
+    await q.update({ isApproved:true });
+    res.json({ success:true, message:'Question approved', data:q });
+  } catch(err) { next(err); }
+};
 
-  const years = await Question.distinct('year', filter);
-  res.json({ success: true, data: years.filter(Boolean).sort((a, b) => b - a) });
+exports.bulkUpload = async (req, res, next) => {
+  try {
+    let questions = [];
+    if (req.file) {
+      const { parse } = require('csv-parse/sync');
+      const records = parse(req.file.buffer.toString(), { columns:true, skip_empty_lines:true, trim:true });
+      questions = records.map(r=>({ examType:r.examType||r.exam_type, subject:r.subject, topic:r.topic||'', year:r.year?parseInt(r.year):null, type:r.type||'MCQ', body:r.body||r.question, options:[r.A||r.optionA,r.B||r.optionB,r.C||r.optionC,r.D||r.optionD].filter(Boolean), answerIndex:r.answerIndex!=null?parseInt(r.answerIndex):null, workedSolution:r.workedSolution||null, difficulty:r.difficulty?parseInt(r.difficulty):3, curriculum:r.curriculum||'NG', tags:r.tags?r.tags.split('|'):[] }));
+    } else if (Array.isArray(req.body.questions)) {
+      questions = req.body.questions;
+    } else {
+      return next(new AppError('Send a CSV file or {questions:[...]} JSON', 400));
+    }
+    if (!questions.length) return next(new AppError('No questions found', 400));
+    if (questions.length > 500) return next(new AppError('Max 500 per upload', 400));
+    const rows = questions.map(q=>({ ...q, createdBy:req.user.id, isApproved:req.user.role==='admin' }));
+    const created = await Question.bulkCreate(rows, { validate:true });
+    res.status(201).json({ success:true, inserted:created.length });
+  } catch(err) { next(err); }
 };

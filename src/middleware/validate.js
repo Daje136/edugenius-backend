@@ -1,6 +1,10 @@
 'use strict';
 const Joi          = require('joi');
 const { AppError } = require('./errorHandler');
+const { EXAM_TYPES, ALL_SUBJECTS } = require('../constants/subjects');
+
+// ─── Valid exam types pulled from constants (single source of truth) ─────────
+// EXAM_TYPES = ['WAEC', 'JAMB', 'NECO', 'IELTS', 'GCSE', 'A_LEVEL']
 
 function validate(schema, source = 'body') {
   return (req, res, next) => {
@@ -29,17 +33,15 @@ const schemas = {
     password:   Joi.string().min(8).max(72).required(),
     schoolId:   Joi.string().optional().allow('', null),
     classLevel: Joi.string().max(20).optional().allow('', null),
-    examTarget: Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL', 'BOTH').optional().allow(null),
-  }),
-
-  login: Joi.object({
-    email:    Joi.string().email().lowercase().required(),
-    password: Joi.string().required(),
+    // ✅ Updated: now includes NECO, IELTS, GCSE
+    examTarget: Joi.string().valid(...EXAM_TYPES, 'BOTH').optional().allow(null),
   }),
 
   question: Joi.object({
-    examType:       Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL', 'PRIMARY').required(),
-    subject:        Joi.string().trim().max(60).required(),
+    // ✅ Updated: uses EXAM_TYPES from constants instead of hardcoded list
+    examType:       Joi.string().valid(...EXAM_TYPES).required(),
+    // ✅ Updated: validates against ALL known subjects across all exams
+    subject:        Joi.string().trim().valid(...ALL_SUBJECTS).required(),
     topic:          Joi.string().trim().max(100).required(),
     year:           Joi.number().integer().min(1990).max(2030).optional(),
     type:           Joi.string().valid('MCQ', 'theory', 'practical').default('MCQ'),
@@ -64,11 +66,13 @@ const schemas = {
   }),
 
   goal: Joi.object({
+    // ✅ Updated: includes NECO, IELTS, GCSE
+    examType:       Joi.string().valid(...EXAM_TYPES).required(),
     targetScore:    Joi.number().min(0).max(100).required(),
     examDate:       Joi.date().iso().required(),
     weeklyHours:    Joi.number().min(1).max(100).required(),
-    examType:       Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL').required(),
-    targetSubjects: Joi.array().items(Joi.string()).optional(),
+    // ✅ Updated: validates against known subjects
+    targetSubjects: Joi.array().items(Joi.string().valid(...ALL_SUBJECTS)).optional(),
   }),
 
   assignment: Joi.object({
@@ -81,16 +85,22 @@ const schemas = {
   }),
 
   aiChat: Joi.object({
-    message:  Joi.string().trim().min(1).max(2000).required(),
-    subject:  Joi.string().trim().max(60).optional(),
-    history:  Joi.array().items(
-      Joi.object({ role: Joi.string().valid('user','assistant').required(), content: Joi.string().required() })
-    ).max(20).optional(),
-  }),
+  message:  Joi.string().trim().min(1).max(2000).required(),
+ subject: Joi.string().trim().min(1).max(100).optional().allow('', null),
+  examType: Joi.string().valid(...EXAM_TYPES).optional().allow('', null),
+  history:  Joi.array().items(
+    Joi.object({
+      role:    Joi.string().valid('user', 'assistant').required(),
+      content: Joi.string().required(),
+    })
+  ).max(20).optional(),
+}),
 
   generateQuestions: Joi.object({
-    examType:   Joi.string().valid('WAEC', 'JAMB', 'UK_GCSE', 'A_LEVEL').required(),
-    subject:    Joi.string().trim().required(),
+    // ✅ Updated: includes NECO, IELTS, GCSE
+    examType:   Joi.string().valid(...EXAM_TYPES).required(),
+    // ✅ Updated: validates against known subjects
+    subject:    Joi.string().trim().valid(...ALL_SUBJECTS).required(),
     topic:      Joi.string().trim().optional().allow('', null).default(null),
     type:       Joi.string().valid('MCQ', 'theory', 'practical', 'mixed').default('MCQ'),
     count:      Joi.number().integer().min(1).max(30).default(10),

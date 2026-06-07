@@ -105,8 +105,7 @@ exports.chat = async (req, res) => {
     saveChatLog(req.user.id, message, reply, subject);
 
   } catch (err) {
-    logger.error('Groq chat error:', err.message);
-
+  logger.error('Groq chat error FULL:', err);
     // Fallback to Gemini
     try {
       logger.info('Falling back to Gemini...');

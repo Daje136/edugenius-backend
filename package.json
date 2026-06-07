@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "dev": "nodemon --ignore fixSessions.js --ignore checkUsers.js --ignore checkCols.js --ignore checkDb.js --ignore seedQuestions.js --ignore seedUsers.js --ignore dedupe.js --watch src src/server.js",
     "seed": "node src/seeders/seed.js",
     "seed:uk": "node src/seeders/seedUKQuestions.js",
     "seed:import": "node src/seeders/importAloc.js",
