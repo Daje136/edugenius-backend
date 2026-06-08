@@ -7,7 +7,6 @@ const { validate, schemas } = require('../middleware/validate');
 
 router.use(authenticate);
 router.use(ctrl.aiRateLimiter);
-
 router.post('/chat',               validate(schemas.aiChat),              ctrl.chat);
 router.post('/generate-questions', validate(schemas.generateQuestions),   ctrl.generateQuestions);
 router.post('/explain',                                                    ctrl.explainQuestion);
